@@ -69,7 +69,7 @@ df_merged <- df_merged %>%
   ungroup()
 
 # Select columns to pivot wider
-defender_columns <- c("nflId", "x", "y", "o", "initial_x", "initial_y", 
+defender_columns <- c("nflId", "o", "initial_x", "initial_y", 
                       "movement_distance")
 
 # Pivot wider, creating columns like defender_1_x, defender_2_y, etc.
