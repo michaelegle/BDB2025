@@ -1,6 +1,6 @@
 library(tidyverse)
 
-source("helper_functions.R")
+source("helpers.R")
 
 # Read in and process tracking data
 tracking_data <- read_tracking_data()
@@ -16,13 +16,20 @@ df_plays <- read_csv("/Users/ajaypatel/Downloads/data/plays.csv")
 # Look at different possible coverage labels
 unique(df_plays$pff_passCoverage)
 
+# Counts of specific coverage types
+df_plays %>% 
+  group_by(pff_passCoverage) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count))
+
 # This isn't binary for whatever reason, stored as NA, "Zone", "Man", "Other"
 unique(df_plays$pff_manZone)
 
 # Not sure if we can fully remove Other coverages (818 plays)
 df_plays %>% 
   group_by(pff_manZone) %>% 
-  summarise(n = n())
+  summarise(count = n()) %>% 
+  arrange(desc(count))
 
 # Read in players' play data
 df_player_play <- read_csv("/Users/ajaypatel/Downloads/data/player_play.csv")
