@@ -37,7 +37,19 @@ tracking_data <- tracking_data %>%
   filter(position %in% defense_positions)
 
 df_plays_small <- df_plays %>% 
-  select(gameId, playId, pff_passCoverage, pff_manZone)
+  select(gameId, playId, pff_passCoverage, pff_manZone) %>% 
+  mutate(
+    pff_passCoverage_reduced = case_when(
+      pff_passCoverage %in% c("Cover-3", "Cover-3 Seam", "Cover-3 Double Cloud", 
+                              "Cover-3 Cloud Left", "Cover-3 Cloud Right") ~ "Cover 3 Family",
+      pff_passCoverage %in% c("Cover-2", "2-Man") ~ "Cover 2",
+      pff_passCoverage %in% c("Cover-1", "Cover-1 Double") ~ "Cover 1",
+      pff_passCoverage %in% c("Quarters", "Bracket") ~ "Quarters",
+      pff_passCoverage == "Cover-0" ~ "Cover 0",
+      pff_passCoverage %in% c("Red Zone", "Goal Line") ~ "Red Zone/Goal line",
+      pff_passCoverage %in% c("Miscellaneous", "Prevent", "Cover 6-Left", "Cover-6 Right") ~ "Misc"
+    )
+  )
 
 # Merge data
 df_merged <- merge(tracking_data, df_plays_small, by = c("gameId", "playId"))
@@ -85,24 +97,33 @@ head(df_wide) %>% View()
 targets <- df_merged %>% 
   group_by(play_id) %>% 
   summarize(pff_passCoverage = unique(pff_passCoverage),
-            pff_manZone = unique(pff_manZone))
+            pff_manZone = unique(pff_manZone),
+            pff_passCoverage_reduced = unique(pff_passCoverage_reduced))
 
 df_wide <- left_join(df_wide, targets, by = c("play_id"))
 
 # Ensure 'pff_manZone' and 'pff_passCoverage' are factors
 df_wide <- df_wide %>%
   mutate(pff_manZone = as.factor(pff_manZone),
-         pff_passCoverage = as.factor(pff_passCoverage)) %>% 
-  filter(!is.na(pff_manZone), !is.na(pff_passCoverage))
+         pff_passCoverage = as.factor(pff_passCoverage),
+         pff_passCoverage_reduced = as.factor(pff_passCoverage_reduced)) %>% 
+  filter(!is.na(pff_manZone), !is.na(pff_passCoverage), !is.na(pff_passCoverage_reduced))
+
+# Remove any missing data
+df_wide <- na.omit(df_wide)
 
 library(caret)
 library(randomForest)
 
-# Split data into train and test sets (e.g., 80% train, 20% test)
+# Select only desired columns
+selected_columns <- grep("^defender_\\d+_(initial_x|initial_y|o|movement_distance)$", names(df_wide), value = TRUE)
+manZone_model_data <- df_wide[, c( "pff_manZone", selected_columns)]
+
+# Split data into train and test sets (80% train, 20% test)
 set.seed(123)
-trainIndex <- createDataPartition(df_wide$pff_manZone, p = 0.8, list = FALSE)
-trainData <- df_wide[trainIndex, ]
-testData <- df_wide[-trainIndex, ]
+trainIndex <- createDataPartition(manZone_model_data$pff_manZone, p = 0.8, list = FALSE)
+trainData <- manZone_model_data[trainIndex, ]
+testData <- manZone_model_data[-trainIndex, ]
 
 # 1. Model for Man/Zone Prediction (Binary Classification)
 manZone_model <- randomForest(pff_manZone ~ ., data = trainData, ntree = 100, mtry = 3, importance = TRUE)
@@ -111,12 +132,22 @@ manZone_model <- randomForest(pff_manZone ~ ., data = trainData, ntree = 100, mt
 manZone_pred <- predict(manZone_model, newdata = testData)
 confusionMatrix(manZone_pred, testData$pff_manZone) ## ~98% accuracy, confusion matrix looks really strong
 
-# Train a model on the filtered data to predict 'pff_passCoverage'
-coverage_model <- randomForest(pff_passCoverage ~ ., data = trainData, ntree = 100, mtry = 3, importance = TRUE)
+# Check feature importance for the man/zone model
+varImpPlot(manZone_model)
 
-coverage_pred <- predict(coverage_model, newdata = testData)
-conf_matrix <- confusionMatrix(coverage_pred, testData$pff_passCoverage) ## 56% accuracy, need to do cross-validation or 
-# class balancing next but initial results are promising
+# Set up coverage model data
+coverage_model_data <- df_wide[, c( "pff_passCoverage_reduced", selected_columns)]
+
+# Split data into train and test sets (80% train, 20% test)
+trainIndex <- createDataPartition(coverage_model_data$pff_passCoverage_reduced, p = 0.8, list = FALSE)
+trainCoverageData <- coverage_model_data[trainIndex, ]
+testCoverageData <- coverage_model_data[-trainIndex, ]
+
+# Train a model on the filtered data to predict 'pff_passCoverage'
+coverage_model <- randomForest(pff_passCoverage_reduced ~ ., data = trainCoverageData, ntree = 100, mtry = 3, importance = TRUE)
+
+coverage_pred <- predict(coverage_model, newdata = testCoverageData)
+conf_matrix <- confusionMatrix(coverage_pred, testCoverageData$pff_passCoverage_reduced) ## 39% accuracy
 
 # Extract confusion matrix table
 conf_matrix_table <- as.data.frame(as.table(conf_matrix))
@@ -128,5 +159,6 @@ ggplot(conf_matrix_table, aes(x = Prediction, y = Reference, fill = Freq)) +
   theme_minimal() +
   labs(x = "Predicted", y = "Actual", fill = "Frequency") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_text(aes(label = Freq), color = "black", size = 5)  # Add text labels to cells
+  geom_text(aes(label = Freq), color = "white", size = 5)  # Add text labels to cells
+
 
