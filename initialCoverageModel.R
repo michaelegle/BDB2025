@@ -116,7 +116,7 @@ library(caret)
 library(randomForest)
 
 # Select only desired columns
-selected_columns <- grep("^defender_\\d+_(initial_x|initial_y|o|movement_distance)$", names(df_wide), value = TRUE)
+selected_columns <- grep("^defender_\\d+_(initial_x|movement_distance)$", names(df_wide), value = TRUE)
 manZone_model_data <- df_wide[, c( "pff_manZone", selected_columns)]
 
 # Split data into train and test sets (80% train, 20% test)
@@ -152,7 +152,7 @@ conf_matrix <- confusionMatrix(coverage_pred, testCoverageData$pff_passCoverage_
 # Extract confusion matrix table
 conf_matrix_table <- as.data.frame(as.table(conf_matrix))
 
-# Plot confusion matrix using ggplot
+# Plot confusion matrix 
 ggplot(conf_matrix_table, aes(x = Prediction, y = Reference, fill = Freq)) +
   geom_tile() +
   scale_fill_gradient(low = "blue", high = "red") +
