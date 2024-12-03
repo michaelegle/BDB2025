@@ -23,6 +23,22 @@ def process_tracking_data(df, plays):
     df['on_defense'] = np.where(df['club'] == df['defensiveTeam'], 1, 0)
 
     df = df[df['displayName'] != "football"]
+
+    # Update the pass coverage labels
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover-3 Seam', 'Cover-3', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover 6-Left', 'Cover-6', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover-6 Right', 'Cover-6', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover-3 Cloud Right', 'Cover-3', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover-3 Cloud Left', 'Cover-3', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover-3 Double Cloud', 'Cover-3', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Cover-1 Double', 'Cover-1', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == '2-Man', 'Cover-2', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Red Zone', 'Red Zone/Goal Line', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Red-Zone', 'Red Zone/Goal Line', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Goal Line', 'Red Zone/Goal Line', df['pff_passCoverage'])
+    df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Prevent', 'Miscellaneous', df['pff_passCoverage'])
+
+    df = df[df['pff_passCoverage'].notnull()]
     return df
 
 # Taken from this on stackoverflow:
