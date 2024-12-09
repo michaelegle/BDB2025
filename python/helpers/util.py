@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import List
-
+import torch
 
 """ 
 week1 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_1.csv")
@@ -38,7 +38,9 @@ def process_tracking_data(df, plays):
     df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Goal Line', 'Red Zone/Goal Line', df['pff_passCoverage'])
     df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Prevent', 'Miscellaneous', df['pff_passCoverage'])
 
+    df = df.sort_values('y')
     df = df[df['pff_passCoverage'].notnull()]
+    df = df[df['on_defense'] == 1]
     return df
 
 # Taken from this on stackoverflow:
@@ -76,3 +78,10 @@ train_df, test_df = train_test_split(week1_new, test_size = 0.2, random_state = 
 train_df, val_df = train_test_split(week1_new, test_size = 0.25, random_state = 30)
 
 print(train_df) """
+
+# TODO
+# Might want to make this more advanced at some point
+def calculate_accuracy(preds, labels):
+    _, predicted = torch.max(preds, 1)
+    correct_predictions = (predicted == labels).sum().item()
+    return(correct_predictions / labels.size(0))
