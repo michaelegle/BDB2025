@@ -7,7 +7,9 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from torch.optim.lr_scheduler import *
-
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report
 
 import time
 start_time = time.time()
@@ -18,15 +20,28 @@ week1 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_1.csv")
 #week2 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_2.csv")
 #week3 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_3.csv")
 #week4 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_4.csv")
+#week5 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_5.csv")
+#week6 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_6.csv")
+#week7 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_7.csv")
+#week8 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_8.csv")
+#week9 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_9.csv")
+
 
 #all_weeks = pd.concat([week1, week2])
 
 plays = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/plays.csv")
+players = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/players.csv")
 
 device = torch.device("cuda:0")
 
 week1_processed = util.process_tracking_data(week1, plays)
+week1_processed = util.add_relative_features(week1_processed, players)
+
 print(week1_processed)
+
+print(week1_processed[(week1_processed['gameId'] == 2022091200) & (week1_processed['playId'] == 85) & (week1_processed['frameId'] == 1)])
+
+asdfasdfjkoe
 
 week1_processed_x = week1_processed[['x', 'rel_x', 'y', 'dir', 'o', 's', 'a', 'on_defense', 'gameId', 'playId', 'frameId', 'nflId']]
 week1_processed_y = week1_processed[['gameId', 'playId', 'frameId', 'pff_passCoverage']].drop_duplicates()
@@ -99,22 +114,22 @@ class CoverageClassifier(nn.Module):
         #self.num_players = num_players
         #self.num_features = num_features
         
-        """ self.embedding = nn.Sequential(
+        self.embedding = nn.Sequential(
             nn.Linear(num_features, model_dim),
             nn.ReLU(),
             nn.LayerNorm(model_dim),
             nn.Dropout(dropout),
-        ) """
+        )
 
         # Transformer encoder layer
         self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model = num_features, nhead = num_heads, dim_feedforward = ff_size, dropout = dropout),
+            nn.TransformerEncoderLayer(d_model = model_dim, nhead = num_heads, dim_feedforward = ff_size, dropout = dropout),
             num_layers = num_layers
         )
         
 
         # this final linear layer will map the transformer layer outputs to class predictions
-        self.fc = nn.Linear(num_features, num_classes)
+        self.fc = nn.Linear(model_dim, num_classes)
         
     def forward(self, x):
         # x shape: (batch_size, seq_length)
@@ -125,13 +140,20 @@ class CoverageClassifier(nn.Module):
         #print(x.type())
         #embedded = self.embedding(x.squeeze()) # (batch_size, seq_length, embed_size)
         #embedded = embedded.permute(1, 0, 2)  # (seq_length, batch_size, embed_size) for transformer
-        
-        x_embedded = self.embedding(x)
-
+        #print(x.shape)
+        #print(self.embedding)
+        #print(x.shape)
         x_normalized = self.normalization_layer(x.permute(0, 2, 1))
-        transformer_output = self.transformer(x_normalized.permute(2, 0, 1))
-        output = transformer_output.mean(dim=0)  # Pooling: take the mean across the sequence
+        #print(x_normalized.shape)
+        x_embedded = self.embedding(x_normalized.permute(0, 2, 1))
+
+        #print(x_embedded.shape)
+        transformer_output = self.transformer(x_embedded)
+        #print(transformer_output.shape)
+        output = transformer_output.mean(dim=1)  # average pooling
+        #print(output.shape)
         logits = self.fc(output)  # (batch_size, num_classes)
+        #print(logits.shape)
         return logits
 
 class CoverageDataset(Dataset):
@@ -154,12 +176,12 @@ class CoverageDataset(Dataset):
 dataset = CoverageDataset(frames = tensor, labels = subset_labels_tensor)
 dataset_size = len(dataset)
 
-x, y = dataset.__getitem__(1)
+#x, y = dataset.__getitem__(1)
 
-print(x)
+""" print(x)
 print(x.dim())
 print(y)
-
+ """
 train_size = int(0.8 * dataset_size)
 val_size = int(0.1 * dataset_size)
 test_size = dataset_size - train_size - val_size
@@ -168,7 +190,7 @@ test_size = dataset_size - train_size - val_size
 train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
 criterion = torch.nn.MSELoss(reduction='sum')
-model = CoverageClassifier(num_players = 11, num_features = 7, num_classes = 9, num_heads = 7, num_layers = 6, model_dim = 512)
+model = CoverageClassifier(num_players = 11, num_features = 7, num_classes = 9, num_heads = 8, num_layers = 6, model_dim = 64)
 
 model.to(device)
 
@@ -178,7 +200,7 @@ training_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_
 testing_loader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle=True)
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size = batch_size, shuffle=True)
 
-optimizer = torch.optim.SGD(model.parameters(), lr = 0.1)
+optimizer = torch.optim.SGD(model.parameters(), lr = 0.01)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.96)
 
 loss_fn = torch.nn.CrossEntropyLoss()
@@ -234,7 +256,7 @@ timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 writer = SummaryWriter('runs/coverage_trainer_{}'.format(timestamp))
 epoch_number = 0
 
-EPOCHS = 12
+EPOCHS = 5
 
 best_vloss = 1_000_000.
 
@@ -283,3 +305,40 @@ for epoch in range(EPOCHS):
     epoch_number += 1
 
 print("--- %s seconds ---" % (time.time() - start_time))
+
+model.eval()
+
+all_labels = []
+all_preds = []
+
+# Disable gradient calculation
+with torch.no_grad():
+    for data in testing_loader:
+        inputs, labels = data
+        
+        # Forward pass: Compute predicted outputs
+        outputs = model(inputs)
+        
+        # Get the predicted class (index with the maximum score)
+        _, predicted = torch.max(outputs, 1)
+        
+        # Store the true labels and predicted labels
+        all_labels.extend(labels.numpy())
+        all_preds.extend(predicted.numpy())
+
+# Convert to numpy arrays
+all_labels = np.array(all_labels)
+all_preds = np.array(all_preds)
+
+# Generate the confusion matrix
+cm = confusion_matrix(all_labels, all_preds)
+
+# Plot the confusion matrix using Seaborn
+plt.figure(figsize=(10, 8))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels = test_dataset.classes, yticklabels = test_dataset.classes)
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.title('Confusion Matrix')
+plt.show()
+
+print(classification_report(all_labels, all_preds, target_names = test_dataset.classes))

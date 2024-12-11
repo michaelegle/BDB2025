@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import List
 import torch
+import math
 
 """ 
 week1 = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_1.csv")
@@ -16,8 +17,14 @@ def process_tracking_data(df, plays):
     df['y'] = np.where(df['playDirection'] == 'left', 160 / 3 - df['y'], df['y'])
     df['dir'] = np.where(df['playDirection'] == 'left', df['dir'] + 180, df['dir'])
     df['dir'] = np.where(df['dir'] > 360, df['dir'] - 360, df['dir'])
+    df['dir'] = df['dir'] / 180 * np.pi
     df['o'] = np.where(df['playDirection'] == 'left', df['o'] + 180, df['o'])
     df['o'] = np.where(df['o'] > 360, df['o'] - 360, df['o'])
+    df['o'] = df['o'] / 180 * np.pi
+    df['s_x'] = np.cos(df['dir']) * df['s']
+    df['s_y'] = np.sin(df['dir']) * df['s']
+    df['a_x'] = np.cos(df['dir']) * df['a']
+    df['a_y'] = np.sin(df['dir']) * df['a']
     df['absoluteYardlineNumber'] = np.where(df['playDirection'] == 'left', 120 - df['absoluteYardlineNumber'], df['absoluteYardlineNumber'])
     df['rel_x'] = df['x'] - df['absoluteYardlineNumber']
     df['on_defense'] = np.where(df['club'] == df['defensiveTeam'], 1, 0)
@@ -38,50 +45,62 @@ def process_tracking_data(df, plays):
     df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Goal Line', 'Red Zone/Goal Line', df['pff_passCoverage'])
     df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Prevent', 'Miscellaneous', df['pff_passCoverage'])
 
-    df = df.sort_values('y')
+    # df = df.sort_values('y')
     df = df[df['pff_passCoverage'].notnull()]
-    df = df[df['on_defense'] == 1]
+    #df = df[df['on_defense'] == 1]
+    df = df[df['qbKneel'] == 0]
+    df = df[df['qbSpike'] == False]
     return df
 
-# Taken from this on stackoverflow:
-# https://stackoverflow.com/questions/23478297/pandas-dataframe-or-panel-to-3d-numpy-array
-def make_cube(df: pd.DataFrame, idx_cols: List[str]) -> np.ndarray:
-    """Make an array cube from a Dataframe
+def add_relative_features(df, players):
 
-    Args:
-        df: Dataframe
-        idx_cols: columns defining the dimensions of the cube
+    # This will add features such as orientation to QB as well as the other columns relative to the offensive players
+    df = pd.merge(df, players[['nflId', 'position']],
+                  how = 'inner',
+                  on = 'nflId')
+    
+    # code adapted to Python from ngscleanR R package https://github.com/guga31bb/ngscleanR/blob/master/R/cleaning_functions.R 
+    df['qb_x'] = np.where(df['position'] == 'QB', df['x'], None)
+    df['qb_y'] = np.where(df['position'] == 'QB', df['y'], None)
+    df['qb_x'] = df.groupby(['gameId', 'playId', 'frameId'])['qb_x'].apply(lambda x: x.fillna(method='ffill').fillna(method='bfill'))
+    df['qb_y'] = df.groupby(['gameId', 'playId', 'frameId'])['qb_y'].apply(lambda x: x.fillna(method='ffill').fillna(method='bfill'))
 
-    Returns:
-        multi-dimensional array
-    """
-    assert len(set(idx_cols) & set(df.columns)) == len(idx_cols), 'idx_cols must be subset of columns'
+    df['dis_to_qb_x'] = df['qb_x'] - df['x']
+    df['dis_to_qb_y'] = df['qb_y'] - df['y']
 
-    df = df.set_index(keys=idx_cols)  # don't overwrite a parameter, thus copy!
-    idx_dims = [len(level) + 1 for level in df.index.levels]
-    idx_dims.append(len(df.columns))
+    df['rel_o_vs_qb'] = np.arctan2(df['dis_to_qb_y'], df['dis_to_qb_x']) * 180 / np.pi
+    df['rel_o_vs_qb'] = np.where(df['rel_o_vs_qb'] < 0, df['rel_o_vs_qb'] + 360, df['rel_o_vs_qb'])
+    df['rel_o_vs_qb'] = np.where(df['rel_o_vs_qb'] > 360, df['rel_o_vs_qb'] - 360, df['rel_o_vs_qb'])
+    df['rel_o_vs_qb'] = np.minimum(np.absolute(360 - (df['o'] - df['rel_o_vs_qb'])), df['o'] - df['rel_o_vs_qb'])
 
-    cube = np.empty(idx_dims)
-    cube.fill(np.nan)
-    cube[tuple(np.array(df.index.to_list()).T)] = df.values
+    # TODO - build in the join for offense/defense
+    off_df = df[df['on_defense'] == 0]
+    def_df = df[df['on_defense'] == 1]
 
-    return cube
+    off_df = off_df[['gameId', 'playId', 'frameId', 'nflId', 'x', 'y', 's_x', 's_y', 'a_x', 'a_y']]
 
-# TODO - test all of this
-# this is all just the python equivalent of what Ajay had in the R script
-""" 
-week1_new = process_tracking_data(week1, plays)
+    new_df = pd.merge(def_df, off_df,
+                      how = 'left',
+                      on = ['gameId', 'playId', 'frameId'],
+                      suffixes = ['', '_off'])
+    
+    print(new_df)
+    print(new_df.columns)
+    # values relative to the given offensive player
+    new_df['rel_off_x'] = new_df['x'] - new_df['x_off']
+    new_df['rel_off_y'] = new_df['y'] - new_df['y_off']
+    new_df['rel_off_s_x'] = new_df['s_x'] - new_df['s_x_off']
+    new_df['rel_off_s_y'] = new_df['s_y'] - new_df['s_y_off']
+    new_df['rel_off_a_x'] = new_df['a_x'] - new_df['a_x_off']
+    new_df['rel_off_a_y'] = new_df['a_y'] - new_df['a_y_off']
 
-print(week1_new[['gameId', 'playId', 'nflId', 'frameId', 'x', 'rel_x', 'y', 'dir', 'o', 'absoluteYardlineNumber']])
-
-train_df, test_df = train_test_split(week1_new, test_size = 0.2, random_state = 30)
-train_df, val_df = train_test_split(week1_new, test_size = 0.25, random_state = 30)
-
-print(train_df) """
+    return new_df
 
 # TODO
 # Might want to make this more advanced at some point
 def calculate_accuracy(preds, labels):
     _, predicted = torch.max(preds, 1)
+    #print(predicted)
+    #print(labels)
     correct_predictions = (predicted == labels).sum().item()
     return(correct_predictions / labels.size(0))
