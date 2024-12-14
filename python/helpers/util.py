@@ -94,6 +94,7 @@ def add_relative_features(df, players):
     new_df['rel_off_a_x'] = new_df['a_x'] - new_df['a_x_off']
     new_df['rel_off_a_y'] = new_df['a_y'] - new_df['a_y_off']
 
+
     return new_df
 
 # TODO

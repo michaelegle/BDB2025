@@ -39,11 +39,11 @@ week1_processed = util.add_relative_features(week1_processed, players)
 
 print(week1_processed)
 
-print(week1_processed[(week1_processed['gameId'] == 2022091200) & (week1_processed['playId'] == 85) & (week1_processed['frameId'] == 1)])
+# week1_processed = week1_processed[(week1_processed['gameId'] == 2022091200) & (week1_processed['playId'] == 85)]
+# week1_processed = week1_processed[(week1_processed['gameId'] == 2022091200)]
 
-asdfasdfjkoe
 
-week1_processed_x = week1_processed[['x', 'rel_x', 'y', 'dir', 'o', 's', 'a', 'on_defense', 'gameId', 'playId', 'frameId', 'nflId']]
+week1_processed_x = week1_processed[['x', 'rel_x', 'y', 'dir', 'o', 's_x', 's_y', 'a_x', 'a_y', 'rel_off_x', 'rel_off_y', 'rel_off_s_x', 'rel_off_s_y', 'rel_off_a_x', 'rel_off_a_y', 'gameId', 'playId', 'frameId', 'nflId', 'nflId_off']]
 week1_processed_y = week1_processed[['gameId', 'playId', 'frameId', 'pff_passCoverage']].drop_duplicates()
 
 print(week1_processed_y['pff_passCoverage'].drop_duplicates())
@@ -52,20 +52,52 @@ print(week1_processed_x)
 print(week1_processed_y)
 
 
-features = ['x', 'rel_x', 'y', 'dir', 'o', 's', 'a']
+features = ['rel_off_x', 'rel_off_y', 'rel_off_s_x', 'rel_off_s_y', 'rel_off_a_x', 'rel_off_a_y', 'x', 'rel_x', 'y', 'dir', 'o', 's_x', 's_y', 'a_x', 'a_y']
 
-week1_pivoted = week1_processed_x.pivot_table(index = ['gameId', 'playId', 'frameId'], values = features, aggfunc = list)
 
-print(week1_pivoted)
+week1_processed_x_longer = week1_processed_x.melt(id_vars = ['nflId', 'gameId', 'playId', 'frameId', 'nflId_off'],
+                                                  value_vars = features,
+                                                  var_name = 'variable',
+                                                  value_name = 'value')
 
-tensor_data = np.array(week1_pivoted.values.tolist(), dtype = 'float64')
+#week1_pivoted = week1_processed_x.pivot_table(index = ['gameId', 'playId', 'frameId', 'nflId'], values = features)
+week1_processed_x_longer['value_rank'] = week1_processed_x_longer.groupby(['gameId', 'playId', 'frameId', 'nflId', 'variable'])['nflId_off'].rank(method = 'dense')
+week1_processed_x_longer = week1_processed_x_longer.reset_index()
+week1_processed_x_longer['value_rank'] = week1_processed_x_longer['value_rank'].astype(int)
+week1_processed_x_longer['new_variable_name'] = week1_processed_x_longer['variable'] + '_' + week1_processed_x_longer['value_rank'].astype(str)
 
-print(tensor_data)
 
-tensor = torch.tensor(tensor_data, device = device).transpose(1, 2).to(torch.float)
+print(week1_processed_x_longer)
 
-print(tensor.shape)
-print(tensor)
+
+
+week1_processed_x_pivoted = week1_processed_x_longer.pivot(index = ['gameId', 'playId', 'frameId', 'nflId'],
+                                                           columns = 'new_variable_name',
+                                                           values = 'value')
+
+week1_processed_x_pivoted = week1_processed_x_pivoted.reset_index()
+
+print(week1_processed_x_pivoted[week1_processed_x_pivoted['frameId'] == 1].drop(['gameId', 'playId', 'frameId', 'nflId'], axis = 1).filter(regex = '^rel_off_s_x', axis = 1))
+
+week1_processed_x_pivoted.drop(['gameId', 'playId', 'frameId', 'nflId'], axis = 1, inplace = True)
+# print(week1_processed_x_pivoted)
+
+# reshape() is weird in how it fills in the 4d tensor. So this is a brief rundown of how this works
+# create 4d tensor of size (unique frames) x (11 defensive players) x (number of features) x (11 offensive players to be compared)
+week1_tensor = week1_processed_x_pivoted.values.reshape(week1_processed_x_pivoted.shape[0] // 11, 11, len(features), 11)
+# Then transpose the tensor on the feature and defensive player axes, so we now have dimensions of:
+# (unique frames) x (number of features) x (11 defensive players) x (11 offensive players to be compared)
+week1_tensor = torch.tensor(week1_tensor).transpose(1, 2).to(device = device).to(torch.float32)
+
+torch.set_printoptions(sci_mode = False)
+
+
+# print(week1_tensor[0, 6, :, :]) # one defensive player's matrix representation on a given frame
+
+#tensor_data = np.array(week1_pivoted.values.tolist(), dtype = 'float64')
+
+print(week1_tensor.shape)
+print(week1_tensor)
 
 
 # TODO - might be best to have a more sensical ordering for these indices, but since you can just map them back together at the end, I don't think it's a huge deal
@@ -106,16 +138,30 @@ class CoverageClassifier(nn.Module):
 
         ff_size = model_dim * 4
         # Normalize the batch
+        # TODO - make sure that this is still working as intended
         self.normalization_layer = nn.BatchNorm1d(num_features)
 
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(in_channels = num_features, out_channels = 32, kernel_size = 1, stride = 1, padding = 0),
+            nn.ReLU(),
+
+            nn.Conv2d(in_channels = 32, out_channels = 64, kernel_size = 1, stride = 1, padding = 0),
+            nn.ReLU(),
+
+            nn.Conv2d(in_channels = 64, out_channels = 128, kernel_size = 1, stride = 1, padding = 0),
+            nn.ReLU(),
+
+            nn.Conv2d(in_channels = 128, out_channels = 32, kernel_size = 1, stride = 1, padding = 0),
+            nn.ReLU(),
+
+            nn.Conv2d(in_channels = 32, out_channels = 1, kernel_size = 1, stride = 1, padding = 0),
+            nn.ReLU()
+        )
 
         # Embedding layer
-        #self.embedding = nn.Embedding(num_players, num_features)
-        #self.num_players = num_players
-        #self.num_features = num_features
         
         self.embedding = nn.Sequential(
-            nn.Linear(num_features, model_dim),
+            nn.Linear(num_players, model_dim),
             nn.ReLU(),
             nn.LayerNorm(model_dim),
             nn.Dropout(dropout),
@@ -143,10 +189,20 @@ class CoverageClassifier(nn.Module):
         #print(x.shape)
         #print(self.embedding)
         #print(x.shape)
-        x_normalized = self.normalization_layer(x.permute(0, 2, 1))
-        #print(x_normalized.shape)
-        x_embedded = self.embedding(x_normalized.permute(0, 2, 1))
+        #print(x)
+        #print(x.shape)
+        x = self.conv_layers(x).squeeze(1)
+        
+        #print(x)
+        #print(x.shape)
 
+        #print(self.embedding)
+        
+        # x_normalized = self.normalization_layer(x)
+        #print(x_normalized.shape)
+        x_embedded = self.embedding(x)
+
+        #print(x_embedded)
         #print(x_embedded.shape)
         transformer_output = self.transformer(x_embedded)
         #print(transformer_output.shape)
@@ -165,7 +221,7 @@ class CoverageDataset(Dataset):
         return len(self.frames)
     
     def __getitem__(self, idx):
-        frame = self.frames[idx, :, :]
+        frame = self.frames[idx, :, :, :]
         label = self.labels[idx]
         
         return frame, label
@@ -173,7 +229,7 @@ class CoverageDataset(Dataset):
 #print(subset_features)
 #print(subset_labels)
 
-dataset = CoverageDataset(frames = tensor, labels = subset_labels_tensor)
+dataset = CoverageDataset(frames = week1_tensor, labels = subset_labels_tensor)
 dataset_size = len(dataset)
 
 #x, y = dataset.__getitem__(1)
@@ -190,11 +246,11 @@ test_size = dataset_size - train_size - val_size
 train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
 
 criterion = torch.nn.MSELoss(reduction='sum')
-model = CoverageClassifier(num_players = 11, num_features = 7, num_classes = 9, num_heads = 8, num_layers = 6, model_dim = 64)
+model = CoverageClassifier(num_players = 11, num_features = 15, num_classes = 9, num_heads = 8, num_layers = 6, model_dim = 64)
 
 model.to(device)
 
-batch_size = 16
+batch_size = 32
 
 training_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle=True)
 testing_loader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle=True)
@@ -208,7 +264,6 @@ loss_fn = torch.nn.CrossEntropyLoss()
 def train_one_epoch(epoch_index, tb_writer):
     running_loss = 0.
     last_loss = 0.
-    running_accuracy = 0.
 
     # Here, we use enumerate(training_loader) instead of
     # iter(training_loader) so that we can track the batch
@@ -226,14 +281,11 @@ def train_one_epoch(epoch_index, tb_writer):
         # Make predictions for this batch
         outputs = model(inputs)
 
-        batch_accuracy = util.calculate_accuracy(outputs, labels)
-
         #print(outputs.shape)
         #print(outputs)
         # Compute the loss and its gradients
         loss = loss_fn(outputs, labels)
         loss.backward()
-        running_accuracy += batch_accuracy
         
         # Adjust learning weights
         # scheduler.step()
@@ -244,7 +296,6 @@ def train_one_epoch(epoch_index, tb_writer):
         if i % 1000 == 999:
             last_loss = running_loss / 1000 # loss per batch
             print('  batch {} loss: {}'.format(i + 1, last_loss))
-            print('  batch {} accuracy: {}'.format(i + 1, running_accuracy / (i + 1)))
             tb_x = epoch_index * len(training_loader) + i + 1
             tb_writer.add_scalar('Loss/train', last_loss, tb_x)
             running_loss = 0.
@@ -256,7 +307,7 @@ timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 writer = SummaryWriter('runs/coverage_trainer_{}'.format(timestamp))
 epoch_number = 0
 
-EPOCHS = 5
+EPOCHS = 50
 
 best_vloss = 1_000_000.
 
@@ -272,6 +323,7 @@ for epoch in range(EPOCHS):
     avg_loss = train_one_epoch(epoch_number, writer)
 
     running_vloss = 0.0
+    running_vaccuracy = 0.0
     # Set the model to evaluation mode, disabling dropout and using population
     # statistics for batch normalization.
     model.eval()
@@ -282,11 +334,15 @@ for epoch in range(EPOCHS):
             vinputs, vlabels = vdata
             voutputs = model(vinputs)
             vloss = loss_fn(voutputs, vlabels)
+            vaccuracy = util.calculate_accuracy(voutputs, vlabels)
             running_vloss += vloss
+            running_vaccuracy += vaccuracy
 
     avg_vloss = running_vloss / (i + 1)
+    avg_vaccuracy = running_vaccuracy / (i + 1)
 
     print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
+    print('ACCURACY validation {}'.format(avg_vaccuracy))
 
     # Log the running loss averaged per batch
     # for both training and validation
