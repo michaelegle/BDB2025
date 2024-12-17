@@ -45,14 +45,14 @@ def process_tracking_data(df, plays):
     df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Goal Line', 'Red Zone/Goal Line', df['pff_passCoverage'])
     df['pff_passCoverage'] = np.where(df['pff_passCoverage'] == 'Prevent', 'Miscellaneous', df['pff_passCoverage'])
 
-    # df = df.sort_values('y')
     df = df[df['pff_passCoverage'].notnull()]
-    #df = df[df['on_defense'] == 1]
     df = df[df['qbKneel'] == 0]
     df = df[df['qbSpike'] == False]
     return df
 
 def add_relative_features(df, players):
+
+
 
     # This will add features such as orientation to QB as well as the other columns relative to the offensive players
     df = pd.merge(df, players[['nflId', 'position']],
@@ -73,7 +73,6 @@ def add_relative_features(df, players):
     df['rel_o_vs_qb'] = np.where(df['rel_o_vs_qb'] > 360, df['rel_o_vs_qb'] - 360, df['rel_o_vs_qb'])
     df['rel_o_vs_qb'] = np.minimum(np.absolute(360 - (df['o'] - df['rel_o_vs_qb'])), df['o'] - df['rel_o_vs_qb'])
 
-    # TODO - build in the join for offense/defense
     off_df = df[df['on_defense'] == 0]
     def_df = df[df['on_defense'] == 1]
 
@@ -96,6 +95,61 @@ def add_relative_features(df, players):
 
 
     return new_df
+
+def reformat_model_data(df, device):
+    # Only take relevant columns
+    df_x = df[['x', 'rel_x', 'y', 'dir', 'o', 's_x', 's_y', 'a_x', 'a_y', 'rel_off_x', 'rel_off_y', 'rel_off_s_x', 'rel_off_s_y', 'rel_off_a_x', 'rel_off_a_y', 'gameId', 'playId', 'frameId', 'nflId', 'nflId_off']]
+    df_y = df[['gameId', 'playId', 'frameId', 'pff_passCoverage']].drop_duplicates()
+
+    features = ['rel_off_x', 'rel_off_y', 'rel_off_s_x', 'rel_off_s_y', 'rel_off_a_x', 'rel_off_a_y', 'x', 'rel_x', 'y', 'dir', 'o', 's_x', 's_y', 'a_x', 'a_y']
+
+
+    df_x_longer = df_x.melt(id_vars = ['nflId', 'gameId', 'playId', 'frameId', 'nflId_off'],
+                            value_vars = features,
+                            var_name = 'variable',
+                            value_name = 'value')
+
+    df_x_longer['value_rank'] = df_x_longer.groupby(['gameId', 'playId', 'frameId', 'nflId', 'variable'])['nflId_off'].rank(method = 'dense')
+    df_x_longer = df_x_longer.reset_index()
+    df_x_longer['value_rank'] = df_x_longer['value_rank'].astype(int)
+    df_x_longer['new_variable_name'] = df_x_longer['variable'] + '_' + df_x_longer['value_rank'].astype(str)
+
+
+    df_x_pivoted = df_x_longer.pivot(index = ['gameId', 'playId', 'frameId', 'nflId'],
+                                     columns = 'new_variable_name',
+                                     values = 'value')
+
+    df_x_pivoted = df_x_pivoted.reset_index()
+
+    df_x_pivoted.drop(['gameId', 'playId', 'frameId', 'nflId'], axis = 1, inplace = True)
+
+    # reshape() is weird in how it fills in the 4d tensor. So this is a brief rundown of how this works
+    # create 4d tensor of size (unique frames) x (11 defensive players) x (number of features) x (11 offensive players to be compared)
+    x_tensor = df_x_pivoted.values.reshape(df_x_pivoted.shape[0] // 11, 11, len(features), 11)
+    # Then transpose the tensor on the feature and defensive player axes, so we now have dimensions of:
+    # (unique frames) x (number of features) x (11 defensive players) x (11 offensive players to be compared)
+    x_tensor = torch.tensor(x_tensor).transpose(1, 2).to(device = device).to(torch.float32)
+
+    #torch.set_printoptions(sci_mode = False)
+
+
+    # TODO - might be best to have a more sensical ordering for these indices, but since you can just map them back together at the end, it's not a huge deal
+    coverage_class_to_index = {
+        "Cover-3": 0,
+        "Quarters": 1,
+        "Cover-1": 2,
+        "Cover-6": 3, 
+        "Cover-2": 4,
+        "Cover-0": 5,
+        "Red Zone/Goal Line": 6,
+        "Miscellaneous": 7,
+        "Bracket": 8
+    }
+
+    y_tensor = torch.tensor([coverage_class_to_index[t] for t in df_y['pff_passCoverage']]).to(device=device)
+
+    #print(subset_labels['pff_passCoverage'].unique())
+    return x_tensor, y_tensor
 
 # TODO
 # Might want to make this more advanced at some point
