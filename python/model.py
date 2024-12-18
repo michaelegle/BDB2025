@@ -11,7 +11,7 @@ class CoverageClassifier(nn.Module):
         ff_size = model_dim * 4
         # Normalize the batch
         # TODO - remove if this isn't necessary
-        # self.normalization_layer = nn.BatchNorm1d(num_features)
+        self.normalization_layer = nn.BatchNorm2d(num_features)
 
         self.conv_layers = nn.Sequential(
             nn.Conv2d(in_channels = num_features, out_channels = 32, kernel_size = 1, stride = 1, padding = 0),
@@ -56,6 +56,7 @@ class CoverageClassifier(nn.Module):
         
     def forward(self, x):
 
+        x = self.normalization_layer(x)
         # Pass through convolutional layers
         x = self.conv_layers(x).squeeze(1)
         

@@ -48,6 +48,7 @@ def process_tracking_data(df, plays):
     df = df[df['pff_passCoverage'].notnull()]
     df = df[df['qbKneel'] == 0]
     df = df[df['qbSpike'] == False]
+    df = df.sort_values(['gameId', 'playId', 'frameId', 'y'])
     return df
 
 def add_relative_features(df, players):
@@ -96,10 +97,12 @@ def add_relative_features(df, players):
 
     return new_df
 
-def reformat_model_data(df, device):
+def reformat_model_data(df, week_number, device):
     # Only take relevant columns
     df_x = df[['x', 'rel_x', 'y', 'dir', 'o', 's_x', 's_y', 'a_x', 'a_y', 'rel_off_x', 'rel_off_y', 'rel_off_s_x', 'rel_off_s_y', 'rel_off_a_x', 'rel_off_a_y', 'gameId', 'playId', 'frameId', 'nflId', 'nflId_off']]
     df_y = df[['gameId', 'playId', 'frameId', 'pff_passCoverage']].drop_duplicates()
+
+    print(df_x)
 
     features = ['rel_off_x', 'rel_off_y', 'rel_off_s_x', 'rel_off_s_y', 'rel_off_a_x', 'rel_off_a_y', 'x', 'rel_x', 'y', 'dir', 'o', 's_x', 's_y', 'a_x', 'a_y']
 
@@ -119,7 +122,9 @@ def reformat_model_data(df, device):
                                      columns = 'new_variable_name',
                                      values = 'value')
 
+    data_path = 'data/x_data_order_week_{}.csv'.format(week_number)
     df_x_pivoted = df_x_pivoted.reset_index()
+    df_x_pivoted[['gameId', 'playId', 'frameId', 'nflId']].drop_duplicates().to_csv(data_path)
 
     df_x_pivoted.drop(['gameId', 'playId', 'frameId', 'nflId'], axis = 1, inplace = True)
 
@@ -130,6 +135,7 @@ def reformat_model_data(df, device):
     # (unique frames) x (number of features) x (11 defensive players) x (11 offensive players to be compared)
     x_tensor = torch.tensor(x_tensor).transpose(1, 2).to(device = device).to(torch.float32)
 
+    print(x_tensor)
     #torch.set_printoptions(sci_mode = False)
 
 

@@ -16,7 +16,6 @@ import time
 
 def create_week_tensor(week_number):
     start_time = time.time()
-    print("Beginning Process to Train Model with Data from Week " + str(week_number))
     print("Importing Data")
     track = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/tracking_week_" + str(week_number) + ".csv")
     plays = pd.read_csv("C:/Users/Michael Egle/BDB2025/data/plays.csv")
@@ -30,13 +29,19 @@ def create_week_tensor(week_number):
     track_processed = util.add_relative_features(track_processed, players)
 
     print("Building Data Into Tensor Format")
-    x_tensor, y_tensor = util.reformat_model_data(track_processed, device)
+    x_tensor, y_tensor = util.reformat_model_data(track_processed, week_number, device)
     print("--- Model Data Loaded and Formatted in %s Seconds ---" % (time.time() - start_time))
 
-    torch.save(x_tensor, "data/model_data/week_" + str(week_number) + "_x_tensor.pt")
+    torch.save(x_tensor.to(torch.float16), "data/model_data/week_" + str(week_number) + "_x_tensor.pt")
     torch.save(y_tensor, "data/model_data/week_" + str(week_number) + "_y_tensor.pt")
 
     print("Saved Tensors for Future Use")
 
+create_week_tensor(2)
+create_week_tensor(3)
+create_week_tensor(4)
+create_week_tensor(5)
+create_week_tensor(6)
+create_week_tensor(7)
 create_week_tensor(8)
 create_week_tensor(9)
