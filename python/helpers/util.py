@@ -133,7 +133,7 @@ def reformat_model_data(df, week_number, device):
     x_tensor = df_x_pivoted.values.reshape(df_x_pivoted.shape[0] // 11, 11, len(features), 11)
     # Then transpose the tensor on the feature and defensive player axes, so we now have dimensions of:
     # (unique frames) x (number of features) x (11 defensive players) x (11 offensive players to be compared)
-    x_tensor = torch.tensor(x_tensor).transpose(1, 2).to(device = device).to(torch.float32)
+    x_tensor = torch.tensor(x_tensor).transpose(1, 2).to(device = device).to(torch.float16)
 
     print(x_tensor)
     #torch.set_printoptions(sci_mode = False)

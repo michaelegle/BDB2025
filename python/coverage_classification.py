@@ -17,36 +17,7 @@ import time
 
 def train_model(week_number):
 
-    print("Beginning Model Training for Week " + str(week_number))
-    start_time = time.time()
-    device = torch.device("cuda:0")
 
-
-
-    model = CoverageClassifier(num_players = 11, num_features = 15, num_classes = 9, num_heads = 8, num_layers = 6, model_dim = 64)
-    model.to(device = device)
-
-    # Assign batch size
-    batch_size = 64
-    patience = 5
-
-    # Assign the optimizer and create a decaying learning schedule
-    optimizer = torch.optim.SGD(model.parameters(), lr = 0.03)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.96)
-
-
-    loss_fn = torch.nn.CrossEntropyLoss()
-
-    # Initializing in a separate cell so we can easily add more epochs to the same run
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    writer = SummaryWriter('runs/coverage_trainer_{}'.format(timestamp))
-    epoch_number = 0
-
-    EPOCHS = 30
-
-    
-
-    start_time = time.time()
 
     
     print("Beginning Model Training")
@@ -92,39 +63,97 @@ def train_model(week_number):
 
         return last_loss
     
-    all_train_x_tensors_list = []
-    all_train_y_tensors_list = []
+        print("Beginning Model Training for Week " + str(week_number))
+    
+    
+    start_time = time.time()
+    device = torch.device("cuda:0")
+
+
+
+    model = CoverageClassifier(num_players = 11, num_features = 15, num_classes = 9, num_heads = 8, num_layers = 4, model_dim = 64)
+    model.to(device = device)
+
+    # Assign batch size
+    batch_size = 16
+    patience = 5
+
+    # Assign the optimizer and create a decaying learning schedule
+    optimizer = torch.optim.SGD(model.parameters(), lr = 0.01)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.96)
+
+
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    # Initializing in a separate cell so we can easily add more epochs to the same run
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    writer = SummaryWriter('runs/coverage_trainer_{}'.format(timestamp))
+    epoch_number = 0
+
+    EPOCHS = 30
+
+
+    train_x_tensor = torch.empty(0, 15, 11, 11)
+    train_y_tensor = torch.empty(0)
 
     val_x_tensor = torch.empty(0, 15, 11, 11)
     val_y_tensor = torch.empty(0, 1)
 
-    for wk in range(1, 5):
-        if wk == week_number:
-            continue
-        elif wk == week_number + 1 or (wk == 1 and week_number == 4):
-            print("validation set " + str(wk))
-            val_x_tensor = torch.load(f'data/model_data/week_{wk}_x_tensor.pt')
-            val_y_tensor = torch.load(f'data/model_data/week_{wk}_y_tensor.pt')
-        else:
-            print("training set " + str(wk))
-            all_train_x_tensors_list.append(torch.load(f'data/model_data/week_{wk}_x_tensor.pt'))
-            all_train_y_tensors_list.append(torch.load(f'data/model_data/week_{wk}_y_tensor.pt'))
+    #for wk in range(1, 10):
+    #    if wk == week_number:
+    #        continue
+    #    elif wk == week_number + 1 or (wk == 1 and week_number == 5):
+    #        print("validation set " + str(wk))
+    #        val_x_tensor = torch.load(f'data/model_data/week_{wk}_x_tensor.pt', map_location='cpu')
+    #        torch.cuda.empty_cache()
+    #        val_y_tensor = torch.load(f'data/model_data/week_{wk}_y_tensor.pt', map_location='cpu')
+    #        torch.cuda.empty_cache()
+    #    else:
+    #        print("training set " + str(wk))
+    #        temp_x = torch.load(f'data/model_data/week_{wk}_x_tensor.pt', map_location='cpu')
+    #        train_x_tensor = torch.cat([train_x_tensor, temp_x])
+    #        del temp_x
+    #        torch.cuda.empty_cache()
+    #        temp_y = torch.load(f'data/model_data/week_{wk}_y_tensor.pt', map_location='cpu')
+    #        train_y_tensor = torch.cat([train_y_tensor, temp_y])
+    #        del temp_y
+    #        torch.cuda.empty_cache()
 
-    train_x_tensor = torch.cat(all_train_x_tensors_list, dim = 0)
-    train_y_tensor = torch.cat(all_train_y_tensors_list, dim = 0)
+    wk = 1
+    x_tensor = torch.load(f'data/model_data/week_{wk}_x_tensor.pt')
+    y_tensor = torch.load(f'data/model_data/week_{wk}_y_tensor.pt')
+
+    x_tensor = x_tensor.to(torch.float32)
+    y_tensor = y_tensor.long()
 
     print("Training Model on Data from Week " + str(wk))
     
+    train_x_tensor = train_x_tensor.to(torch.float32)
+    train_y_tensor = train_y_tensor.long()
+
+    val_x_tensor = train_x_tensor.to(torch.float32)
+    val_y_tensor = train_y_tensor.long()
+
+    train_x_tensor = train_x_tensor.to(device)
+    train_y_tensor = train_y_tensor.to(device)
+
+    val_x_tensor = train_x_tensor.to(device)
+    val_y_tensor = train_y_tensor.to(device)
+
+    print(train_x_tensor.dtype)
+    print(val_x_tensor.dtype)
+
     #x_tensor = torch.load("data/model_data/week_" + str(wk) + "_x_tensor.pt").to(device)
     #y_tensor = torch.load("data/model_data/week_" + str(wk) + "_y_tensor.pt").to(device)
-    train_dataset = CoverageDataset(frames = train_x_tensor, labels = train_y_tensor)
-    val_dataset = CoverageDataset(frames = val_x_tensor, labels = val_y_tensor)
-    #dataset_size = len(dataset)
-    #train_size = int(0.8 * dataset_size)
-    #val_size = dataset_size - train_size
-    #test_size = 0
-    #train_dataset = Subset(dataset = dataset, indices = range(train_size))
-    #val_dataset = Subset(dataset = dataset, indices = range(train_size, dataset_size))
+    #train_dataset = CoverageDataset(frames = train_x_tensor, labels = train_y_tensor)
+    dataset = CoverageDataset(frames = x_tensor, labels = y_tensor)
+    #val_dataset = CoverageDataset(frames = val_x_tensor, labels = val_y_tensor)
+    dataset_size = len(dataset)
+    train_size = int(0.8 * dataset_size)
+    val_size = dataset_size - train_size
+    test_size = 0
+    train_dataset = Subset(dataset = dataset, indices = range(train_size))
+    val_dataset = Subset(dataset = dataset, indices = range(train_size, dataset_size))
 
     #train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
     # Create the train/test/validation sets
